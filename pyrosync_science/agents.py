@@ -92,44 +92,44 @@ async def synthesize(client, country, question, evidence):
         "apenas os identificadores C, P, H ou B de fontes efetivamente usadas."
     )
     prompt = json.dumps({"pais": country, "pergunta": question, "evidencias": evidence}, ensure_ascii=False)
-    try:
-        if key:
-            r = await client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {key}"},
-                json={"model": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
-                      "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-                      "temperature": 0.1, "max_tokens": 400, "response_format": {"type": "json_object"}},
-                timeout=35,
-            )
-            r.raise_for_status()
-            text = r.json()["choices"][0]["message"]["content"]
-            provider = "Groq"
-        else:
-            model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-            if not re.fullmatch(r"[A-Za-z0-9._-]+", model):
-                raise ValueError("Modelo inválido")
-            r = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                headers={"x-goog-api-key": gemini_key},
-                json={"systemInstruction": {"parts": [{"text": system}]},
-                      "contents": [{"parts": [{"text": prompt}]}],
-                      "generationConfig": {"temperature": 0.1, "maxOutputTokens": 500,
-                                           "responseMimeType": "application/json"}}, timeout=35,
-            )
-            r.raise_for_status()
-            text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-            provider = "Gemini"
-        result = json.loads(text)
-        answer = result.get("resposta", "")
-        citations = result.get("fontes", [])
-        available = set(evidence)
-        if (not isinstance(answer, str) or not 20 <= len(answer) <= 1400 or re.search(r"\d", answer)
-                or not isinstance(citations, list) or not citations or not set(citations) <= available):
-            raise ValueError("Resposta não passou na revisão de evidências.")
-        return {"texto": answer, "fontes": citations, "provedor": provider}, None
-    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-        return None, "A síntese de IA não passou na revisão ou está indisponível."
+    for provider in (["Groq"] if key else []) + (["Gemini"] if gemini_key else []):
+        try:
+            if provider == "Groq":
+                r = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {key}"},
+                    json={"model": os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b"),
+                          "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+                          "temperature": 0.1, "max_tokens": 600, "response_format": {"type": "json_object"}},
+                    timeout=35,
+                )
+                r.raise_for_status()
+                text = r.json()["choices"][0]["message"]["content"]
+            else:
+                model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+                if not re.fullmatch(r"[A-Za-z0-9._-]+", model):
+                    raise ValueError("Modelo inválido")
+                r = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                    headers={"x-goog-api-key": gemini_key},
+                    json={"systemInstruction": {"parts": [{"text": system}]},
+                          "contents": [{"parts": [{"text": prompt}]}],
+                          "generationConfig": {"temperature": 0.1, "maxOutputTokens": 800,
+                                               "responseMimeType": "application/json"}}, timeout=35,
+                )
+                r.raise_for_status()
+                text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+            result = json.loads(text)
+            answer = result.get("resposta", "")
+            citations = result.get("fontes", [])
+            available = set(evidence)
+            if (not isinstance(answer, str) or not 20 <= len(answer) <= 1400 or re.search(r"\d", answer)
+                    or not isinstance(citations, list) or not citations or not set(citations) <= available):
+                raise ValueError("Resposta não passou na revisão de evidências.")
+            return {"texto": answer, "fontes": citations, "provedor": provider}, None
+        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+            continue
+    return None, "A síntese de IA não passou na revisão ou está indisponível."
 
 
 async def analyze(base_url, country, region, start, end, question):
