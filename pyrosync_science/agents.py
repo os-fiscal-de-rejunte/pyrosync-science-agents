@@ -132,6 +132,35 @@ async def synthesize(client, country, question, evidence):
     return None, "A síntese de IA não passou na revisão ou está indisponível."
 
 
+def deterministic_summary(evidence):
+    calendar = evidence.get("C")
+    prediction = evidence.get("P")
+    texts = []
+    sources = []
+    if calendar:
+        records = calendar.get("registros_por_sensor", [])
+        by_sensor = {}
+        for record in records:
+            sensor = record.get("sensor_family")
+            if sensor in {"MODIS", "VIIRS"}:
+                by_sensor[sensor] = by_sensor.get(sensor, 0) + int(record.get("deteccoes", 0))
+        if by_sensor:
+            detail = " e ".join(f"{count} registros {sensor}" for sensor, count in sorted(by_sensor.items()))
+            texts.append(f"Na página consultada, o FIRMS retornou {detail}. Esses registros não são uma contagem de incêndios independentes.")
+        else:
+            texts.append("O FIRMS não retornou registros nessa página; isso não comprova ausência de fogo.")
+        sources.append("C")
+    if prediction:
+        texts.append("A previsão apresentada é experimental e se refere a células específicas, não ao país inteiro.")
+        sources.append("P")
+    if "B" in evidence:
+        texts.append("A comparação entre anos é exploratória e não confirma uma anomalia.")
+        sources.append("B")
+    if not texts:
+        return None
+    return {"texto": " ".join(texts), "fontes": sources, "provedor": "regras científicas"}
+
+
 async def analyze(base_url, country, region, start, end, question):
     geographic = {"pais": country}
     if region:
@@ -160,6 +189,8 @@ async def analyze(base_url, country, region, start, end, question):
         evidence = {k: v for k, v in {"C": historical, "P": forecast, "H": hotspot, "B": history}.items() if v is not None}
         review = review_evidence(calendar, prediction, fires)
         summary, ai_error = await synthesize(client, country, question, evidence) if evidence else (None, "Sem fontes disponíveis.")
+        if summary is None:
+            summary = deterministic_summary(evidence)
     return {
         "pais": country, "regiao": region, "pergunta": question,
         "etapas": [
@@ -168,7 +199,7 @@ async def analyze(base_url, country, region, start, end, question):
             {"agente": "Previsão e clima", "status": "concluído" if forecast else "indisponível", "erro": error_p},
             {"agente": "Focos harmonizados", "status": "concluído" if hotspot is not None else "indisponível", "erro": error_h},
             {"agente": "Revisão científica", "status": "concluído", "erro": None},
-            {"agente": "Síntese em linguagem natural", "status": "concluído" if summary else "indisponível", "erro": ai_error},
+            {"agente": "Síntese de IA", "status": "concluído" if ai_error is None else "indisponível", "erro": ai_error},
         ],
         "evidencias": evidence, "revisao": review, "sintese": summary,
         "fontes": [{"id": "C", "nome": "NASA FIRMS — calendário direto", "url": FIRMS_SOURCE},

@@ -9,7 +9,7 @@ Orquestração para responder perguntas sobre focos de calor em um país ou regi
 3. **Previsão e clima:** consulta a saída do modelo existente por célula e preserva sua condição e seus avisos.
 4. **Focos harmonizados:** consulta uma amostra do banco, restrita ao alcance das cargas. Quando o filtro regional não é compatível, informa a indisponibilidade.
 5. **Revisão científica:** acrescenta limites sobre cobertura, sensores, paginação, calibração e ausência de dados.
-6. **Síntese:** um provedor de linguagem pode explicar os dados; a resposta deve referenciar fontes existentes e passar por verificações simples. Sem aprovação, as evidências permanecem acessíveis.
+6. **Síntese:** um provedor de linguagem pode explicar os dados; a resposta deve referenciar fontes existentes e passar por verificações simples. Se a IA estiver indisponível, regras explícitas resumem apenas as evidências retornadas.
 
 Os agentes executam funções com ferramentas restritas; não têm acesso genérico à internet nem ao banco de relatos comunitários. O provedor de linguagem recebe apenas a pergunta, o território e as evidências públicas necessárias. Não recebe credenciais de banco ou relatos.
 

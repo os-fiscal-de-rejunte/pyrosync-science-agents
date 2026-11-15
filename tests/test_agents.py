@@ -57,3 +57,12 @@ def test_missing_sensor_is_not_treated_as_zero(monkeypatch):
     result = asyncio.run(agents.compare_history("https://example.org", "Brazil", None,
                                                 date(2025, 1, 1), date(2025, 1, 5), "VIIRS"))
     assert all(period["deteccoes"] is None for period in result["periodos"])
+
+
+def test_deterministic_fallback_never_invents_values():
+    evidence = {"C": {"registros_por_sensor": [{"sensor_family": "MODIS", "deteccoes": 3}]},
+                "P": {"celulas": []}, "B": {"periodos": []}}
+    result = agents.deterministic_summary(evidence)
+    assert "3 registros MODIS" in result["texto"]
+    assert "não confirma uma anomalia" in result["texto"]
+    assert result["fontes"] == ["C", "P", "B"]
