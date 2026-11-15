@@ -77,6 +77,40 @@ def review_evidence(calendar, prediction, fires):
     return notes
 
 
+def qualitative_evidence(evidence):
+    result = {}
+    if "C" in evidence:
+        calendar = evidence["C"]
+        records = calendar.get("registros_por_sensor", [])
+        sensors = sorted({item.get("sensor_family") for item in records
+                          if item.get("sensor_family") in {"MODIS", "VIIRS"}
+                          and (item.get("deteccoes") or 0) > 0})
+        result["C"] = {
+            "fonte": "consulta direta ao NASA FIRMS, sem harmonização",
+            "registros_retornados": any((item.get("deteccoes") or 0) > 0 for item in records),
+            "sensores_com_registros": sensors,
+            "cobertura_completa": bool(calendar.get("resultado_completo")),
+            "limite": "ausência de registros não prova ausência de fogo",
+        }
+    if "B" in evidence:
+        periods = evidence["B"].get("periodos", [])
+        result["B"] = {
+            "comparacao_disponivel": any(item.get("deteccoes") is not None for item in periods),
+            "limite": "comparação exploratória, sem comprovar anomalia ou causalidade",
+        }
+    if "P" in evidence:
+        result["P"] = {
+            "celulas_disponiveis": bool(evidence["P"].get("celulas")),
+            "limite": "previsão experimental por célula, não calibrada globalmente e inadequada para alertas",
+        }
+    if "H" in evidence:
+        result["H"] = {
+            "registros_na_amostra": bool(evidence["H"].get("quantidade_na_amostra")),
+            "limite": "amostra do banco com cobertura limitada às áreas e datas carregadas",
+        }
+    return result
+
+
 async def synthesize(client, country, question, evidence):
     key = os.environ.get("GROQ_API_KEY")
     gemini_key = os.environ.get("GEMINI_API_KEY")
@@ -91,7 +125,9 @@ async def synthesize(client, country, question, evidence):
         "Retorne apenas JSON com resposta, em até três frases, e fontes, lista contendo "
         "apenas os identificadores C, P, H ou B de fontes efetivamente usadas."
     )
-    prompt = json.dumps({"pais": country, "pergunta": question, "evidencias": evidence}, ensure_ascii=False)
+    safe_question = re.sub(r"\d+(?:[.,]\d+)?", "[valor informado]", question)
+    prompt = json.dumps({"pais": country, "pergunta": safe_question,
+                         "evidencias": qualitative_evidence(evidence)}, ensure_ascii=False)
     for provider in (["Groq"] if key else []) + (["Gemini"] if gemini_key else []):
         try:
             if provider == "Groq":
@@ -115,7 +151,9 @@ async def synthesize(client, country, question, evidence):
                     json={"systemInstruction": {"parts": [{"text": system}]},
                           "contents": [{"parts": [{"text": prompt}]}],
                           "generationConfig": {"temperature": 0.1, "maxOutputTokens": 800,
-                                               "responseMimeType": "application/json"}}, timeout=35,
+                                               "responseMimeType": "application/json",
+                                               **({"thinkingConfig": {"thinkingBudget": 0}}
+                                                  if model.startswith("gemini-2.5-") else {})}}, timeout=35,
                 )
                 r.raise_for_status()
                 text = r.json()["candidates"][0]["content"]["parts"][0]["text"]

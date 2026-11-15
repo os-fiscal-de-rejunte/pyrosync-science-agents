@@ -66,3 +66,47 @@ def test_deterministic_fallback_never_invents_values():
     assert "3 registros MODIS" in result["texto"]
     assert "não confirma uma anomalia" in result["texto"]
     assert result["fontes"] == ["C", "P", "B"]
+
+
+def test_qualitative_evidence_preserves_availability_without_numbers():
+    evidence = {
+        "C": {"registros_por_sensor": [{"sensor_family": "VIIRS", "deteccoes": 42},
+                                        {"sensor_family": "MODIS", "deteccoes": 0}],
+              "resultado_completo": True},
+        "B": {"periodos": [{"deteccoes": None}]},
+        "P": {"celulas": [{"probabilidade_condicional": 0.75}]},
+        "H": {"quantidade_na_amostra": 0},
+    }
+    result = agents.qualitative_evidence(evidence)
+    assert result["C"]["sensores_com_registros"] == ["VIIRS"]
+    assert result["C"]["registros_retornados"] is True
+    assert result["B"]["comparacao_disponivel"] is False
+    assert result["P"]["celulas_disponiveis"] is True
+    assert result["H"]["registros_na_amostra"] is False
+    assert not any(char.isdigit() for char in json.dumps(result, ensure_ascii=False))
+
+
+def test_provider_receives_qualitative_evidence_and_sanitized_question(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "dummy-for-test")
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": json.dumps({
+                "resposta": "As observações indicam registros de calor na página consultada.",
+                "fontes": ["C"],
+            })}}]}
+
+    class Client:
+        async def post(self, *args, **kwargs):
+            captured.update(json.loads(kwargs["json"]["messages"][1]["content"]))
+            return Response()
+
+    evidence = {"C": {"registros_por_sensor": [{"sensor_family": "VIIRS", "deteccoes": 42}]}}
+    result, error = asyncio.run(agents.synthesize(Client(), "Brazil", "O que aconteceu em 2025?", evidence))
+    assert error is None and result["provedor"] == "Groq"
+    assert "2025" not in captured["pergunta"]
+    assert "42" not in json.dumps(captured["evidencias"])
